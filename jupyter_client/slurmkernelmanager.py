@@ -30,8 +30,8 @@ class SlurmKernelManager(IOLoopKernelManager):
              and launching the kernel (e.g. Popen kwargs).
         """
         # write connection file / get default ports
-        self.write_connection_file()
         self.ip = '0.0.0.0'
+        self.write_connection_file()
 
         # save kwargs for use in restart
         self._launch_args = kw.copy()
