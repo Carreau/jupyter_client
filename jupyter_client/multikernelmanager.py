@@ -116,6 +116,7 @@ class MultiKernelManager(LoggingConfigurable):
 
         The kernel ID for the newly started kernel is returned.
         """
+        raise ValueError('shouls be callign async')
         kernel_id, kernel_name, km = self._start_kernel(kernel_name, **kwargs)
 
         km.start_kernel(**kwargs)
