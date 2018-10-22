@@ -56,6 +56,7 @@ class SlurmKernelManager(IOLoopKernelManager):
             f.write("#SBATCH --ntasks=1\n")
             f.write("#SBATCH --node=1\n")
             f.write('JUPYTER_RUNTIME_DIR="$HOME/xd/"\n')
+            f.write('echo Running:' + ' '.join(kernel_cmd))
             f.write(' '.join(kernel_cmd))
         r = run("sbatch ssubmit.sh".split(" "), stdout=PIPE, stderr=PIPE)
         jobid = r.stdout.strip().split(b" ")[-1].decode()
@@ -66,9 +67,10 @@ class SlurmKernelManager(IOLoopKernelManager):
             ST, NODELIST = [x for x in r.stdout.splitlines()[-1].split(b" ") if x]
             await sleep(1)
             print(f"Job {ST} {NODELIST}")
-        print("Job is now running {ST.decode()} on {NODELIST.decode()}")
+        print(f"Job is now running {ST.decode()} on {NODELIST.decode()}")
 
         self.ip = NODELIST.decode()
+        self.write_connection_file()
 
         self.start_restarter()
         self._connect_control_socket()
