@@ -13,6 +13,8 @@ from .ioloop.manager import IOLoopKernelManager
 
 from there import print
 
+import socket
+
 
 class SlurmKernelManager(IOLoopKernelManager):
     async def start_kernel(self, **kw):
@@ -29,6 +31,7 @@ class SlurmKernelManager(IOLoopKernelManager):
         """
         # write connection file / get default ports
         self.write_connection_file()
+        self.ip = '0.0.0.0'
 
         # save kwargs for use in restart
         self._launch_args = kw.copy()
@@ -69,8 +72,10 @@ class SlurmKernelManager(IOLoopKernelManager):
             print(f"Job {ST} {NODELIST}")
         print(f"Job is now running {ST.decode()} on {NODELIST.decode()}")
 
-        self.ip = NODELIST.decode()
-        self.write_connection_file()
+        new_ip = socket.gethostbyname(NODELIST.decode())
+        print('setting new ip to ', new_ip)
+        self.ip =  new_ip
+        #self.write_connection_file()
 
         self.start_restarter()
         self._connect_control_socket()

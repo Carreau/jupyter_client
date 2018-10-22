@@ -33,6 +33,8 @@ from traitlets import (
 )
 from jupyter_core.paths import jupyter_data_dir, jupyter_runtime_dir
 
+from there import print
+
 
 def write_connection_file(fname=None, shell_port=0, iopub_port=0, stdin_port=0, hb_port=0,
                           control_port=0, ip='', key=b'', transport='tcp',
