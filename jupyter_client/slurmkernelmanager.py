@@ -50,7 +50,7 @@ class SlurmKernelManager(IOLoopKernelManager):
         with open("ssubmit.sh", "w") as f:
             f.write("#!/bin/bash\n")
             f.write("#SBATCH --output=debug.log\n")
-            f.write("#SBATCH -p fast.q\n")
+            f.write("#SBATCH -p debug.q\n")
             f.write("#SBATCH --time=0-00:15:00\n")
             f.write("#SBATCH --mem-per-cpu=1G\n")
             f.write("#SBATCH --ntasks=1\n")
