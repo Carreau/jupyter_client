@@ -46,7 +46,7 @@ class SlurmKernelManager(IOLoopKernelManager):
 
         # launch the kernel subprocess
         self.log.debug("Starting kernel: %s", kernel_cmd)
-
+        kernel_cmd.append('--ip="0.0.0.0"')
         with open("ssubmit.sh", "w") as f:
             f.write("#!/bin/bash\n")
             f.write("#SBATCH --output=debug.log\n")
