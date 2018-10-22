@@ -55,7 +55,7 @@ class SlurmKernelManager(IOLoopKernelManager):
             f.write("#SBATCH --mem-per-cpu=1G\n")
             f.write("#SBATCH --ntasks=1\n")
             f.write("#SBATCH --node=1\n")
-            f.write('JUPYTER_RUNTIME_DIR="$HOME/xd/"')
+            f.write('JUPYTER_RUNTIME_DIR="$HOME/xd/"\n')
             f.write(' '.join(kernel_cmd))
         r = run("sbatch ssubmit.sh".split(" "), stdout=PIPE, stderr=PIPE)
         jobid = r.stdout.strip().split(b" ")[-1].decode()
