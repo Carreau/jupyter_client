@@ -20,6 +20,10 @@ from ipython_genutils.py3compat import unicode_type
 
 from .kernelspec import NATIVE_KERNEL_NAME, KernelSpecManager
 
+if sys.version_info >= (3, 5):
+        import asyncio
+        from inspect import iscoroutinefunction
+
 class DuplicateKernelError(Exception):
     pass
 
@@ -339,11 +343,6 @@ class MultiKernelManager(LoggingConfigurable):
         return unicode_type(uuid.uuid4())
 
     if sys.version_info >= (3, 5):
-        # this looks weird as we are extra indented, but we are
-        # indeed defining a conditional method depending on the version
-        # of Python.
-        import asyncio
-        from inspect import iscoroutinefunction
 
         @asyncio.coroutine
         def start_kernel_async(self, kernel_name=None, **kwargs):
