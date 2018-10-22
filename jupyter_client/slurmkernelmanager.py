@@ -1,29 +1,17 @@
 """
 A kernel manager to submit kernels via slurm.
 
-unlike other manager submiting kernels via jupb scheduler requires to wait to
-know the schedule host to bind the the right ports. """
+Unlike other manager submitting kernels via job scheduler requires to wait to
+know the schedule host to bind the right ports. """
 
-from ioloop.manager import IOLoopManager
+from .ioloop.manager import IOLoopKernelManager
 from subprocess import run, PIPE
+from there import print
 
 
-from subprocess import run, PIPE
-r = run('sbatch sleep-100'.split(' '), stdout=PIPE, stderr=PIPE)
-jobid = r.stdout.strip().split(b' ')[-1].decode()
-print('JOB ID', jobid)
 
-ST = None
-
-for i in range(20):
-   r = run(['squeue', '-j', jobid, '-o',"%.2t %R"], stdout=PIPE)
-   ST,NODELIST = [x for x in r.stdout.splitlines()[-1].split(b' ') if x]
-   import time
-   print(f'Job {ST} {NODELIST}')
-   time.sleep(1)
-
-
-class SlurmKernelManager(IOLoopManager):
+class SlurmKernelManager(IOLoopKernelManager):
+    
 
 
     async def start_kernel(self, **kw):
