@@ -50,7 +50,7 @@ class SlurmKernelManager(IOLoopKernelManager):
         with open("ssubmit.sh", "w") as f:
             f.write("#!/bin/bash\n")
             f.write("#SBATCH --output=debug.log\n")
-            f.write(kernel_cmd)
+            f.write(' '.join(kernel_cmd))
         r = run("sbatch ssubmit.sh".split(" "), stdout=PIPE, stderr=PIPE)
         jobid = r.stdout.strip().split(b" ")[-1].decode()
         print("JOB ID", jobid)
