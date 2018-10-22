@@ -71,7 +71,6 @@ class SlurmKernelManager(IOLoopKernelManager):
             await sleep(1)
             print(f"Job {ST} {NODELIST}")
         print(f"Job is now running {ST.decode()} on {NODELIST.decode()}")
-
         new_ip = socket.gethostbyname(NODELIST.decode())
         print('setting new ip to ', new_ip)
         self.ip =  new_ip
