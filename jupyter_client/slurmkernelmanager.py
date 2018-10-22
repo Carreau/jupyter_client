@@ -50,12 +50,15 @@ class SlurmKernelManager(IOLoopKernelManager):
         with open("ssubmit.sh", "w") as f:
             f.write("#!/bin/bash\n")
             f.write("#SBATCH --output=debug.log\n")
+            f.write("#SBATCH -p fast.q\n")
+            f.write("#SBATCH --time=0-00:15:00\n")
+            f.write('JUPYTER_RUNTIME_DIR="$HOME/xd/"')
             f.write(' '.join(kernel_cmd))
         r = run("sbatch ssubmit.sh".split(" "), stdout=PIPE, stderr=PIPE)
         jobid = r.stdout.strip().split(b" ")[-1].decode()
         print("JOB ID", jobid)
         ST = None
-        while ST != "R":
+        while ST != b"R":
             r = run(["squeue", "-j", jobid, "-o", "%.2t %R"], stdout=PIPE)
             ST, NODELIST = [x for x in r.stdout.splitlines()[-1].split(b" ") if x]
             await sleep(1)
