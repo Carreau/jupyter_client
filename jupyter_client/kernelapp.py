@@ -1,17 +1,18 @@
 """An application to launch a kernel by name in a local subprocess."""
 
+import asyncio
 import os
 import signal
 import typing as t
 import uuid
 
 from jupyter_core.application import JupyterApp, base_flags
-from tornado.ioloop import IOLoop
 from traitlets import Unicode
 
 from . import __version__
 from .kernelspec import NATIVE_KERNEL_NAME, KernelSpecManager
 from .manager import KernelManager
+from .stream import ensure_event_loop
 
 
 class KernelApp(JupyterApp):
@@ -42,19 +43,22 @@ class KernelApp(JupyterApp):
         )
         self.km = KernelManager(kernel_name=self.kernel_name, config=self.config)
 
-        self.loop = IOLoop.current()
-        self.loop.add_callback(self._record_started)
+        # .. versionchanged:: 8.10
+        #    ``self.loop`` is an :class:`asyncio.AbstractEventLoop` rather than a
+        #    ``tornado.ioloop.IOLoop``.
+        self.loop = ensure_event_loop()
+        self.loop.call_soon(self._record_started)
 
     def setup_signals(self) -> None:
         """Shutdown on SIGTERM or SIGINT (Ctrl-C)"""
         if os.name == "nt":
             return
 
-        def shutdown_handler(signo: int, frame: t.Any) -> None:
-            self.loop.add_callback_from_signal(self.shutdown, signo)
-
+        # asyncio's signal handling delivers the callback on the event loop
+        # rather than inside the signal handler, so no add_callback_from_signal
+        # style trampoline is needed.
         for sig in [signal.SIGTERM, signal.SIGINT]:
-            signal.signal(sig, shutdown_handler)
+            self.loop.add_signal_handler(sig, self.shutdown, sig)
 
     def shutdown(self, signo: int) -> None:
         """Shut down the application."""
@@ -85,9 +89,11 @@ class KernelApp(JupyterApp):
             self.km.start_kernel()
             self.log_connection_info()
             self.setup_signals()
-            self.loop.start()
+            self.loop.run_forever()
         finally:
             self.km.cleanup_resources()
+            self.loop.close()
+            asyncio.set_event_loop(None)
 
 
 main = KernelApp.launch_instance
