@@ -131,6 +131,12 @@ Submodules
    :undoc-members:
 
 
+.. automodule:: jupyter_client.stream
+   :members:
+   :show-inheritance:
+   :undoc-members:
+
+
 .. automodule:: jupyter_client.threaded
    :members:
    :show-inheritance:
