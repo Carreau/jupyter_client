@@ -2,6 +2,7 @@
 
 # Copyright (c) Jupyter Development Team.
 # Distributed under the terms of the Modified BSD License.
+import asyncio
 import hmac
 import math
 import os
@@ -15,12 +16,11 @@ from unittest import mock
 import pytest
 import zmq
 from dateutil.tz import tzlocal
-from tornado import ioloop
 from traitlets import TraitError
-from zmq.eventloop.zmqstream import ZMQStream
 
 from jupyter_client import jsonutil
 from jupyter_client import session as ss
+from jupyter_client.stream import AsyncZMQStream
 
 
 def _bad_packer(obj):
@@ -274,8 +274,11 @@ class TestSession:
         b.connect("inproc://test")
         s = session
         s.copy_threshold = 1
-        loop = ioloop.IOLoop(make_current=False)
-        ZMQStream(a, io_loop=loop)
+        loop = asyncio.new_event_loop()
+        try:
+            AsyncZMQStream(a, io_loop=loop)
+        finally:
+            loop.close()
         msg = s.send(a, "hello", track=False)
         self.assertTrue(msg["tracker"] is ss.DONE)
         msg = s.send(a, "hello", track=True)
@@ -303,7 +306,6 @@ class TestSession:
         b.connect("inproc://test")
         s = session
         s.copy_threshold = 1
-        loop = ioloop.IOLoop(make_current=False)
 
         msg = s.send(a, "hello", track=False)
         self.assertTrue(msg["tracker"] is ss.DONE)
