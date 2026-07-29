@@ -132,3 +132,83 @@ def test_default_stream_class_is_zmqstream_when_tornado_present():
 
     assert IOLoopKernelManager().stream_class is ZMQStream
     assert AsyncIOLoopKernelManager().stream_class is ZMQStream
+
+
+NO_TORNADO_SCRIPT = '''
+import os, sys
+os.environ["JUPYTER_PLATFORM_DIRS"] = "1"
+
+
+class Blocker:
+    """Make tornado unimportable, to prove jupyter_client does not need it."""
+
+    def find_spec(self, name, path=None, target=None):
+        if name == "tornado" or name.startswith("tornado."):
+            msg = "tornado is blocked for this test (%s)" % name
+            raise ImportError(msg)
+        return None
+
+
+sys.meta_path.insert(0, Blocker())
+
+import asyncio
+
+import jupyter_client  # noqa: F401
+import jupyter_client.kernelapp  # noqa: F401
+from jupyter_client.ioloop import AsyncIOLoopKernelManager
+from jupyter_client.session import Session  # noqa: F401
+from jupyter_client.stream import AsyncZMQStream
+from jupyter_client.threaded import ThreadedKernelClient  # noqa: F401
+
+assert "tornado" not in sys.modules
+
+km = AsyncIOLoopKernelManager()
+assert km.stream_class is AsyncZMQStream, km.stream_class
+
+
+async def main():
+    await km.start_kernel(stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
+    shell = km.connect_shell()
+    assert isinstance(shell, AsyncZMQStream)
+    fut = asyncio.get_running_loop().create_future()
+
+    def on_recv(msg_list):
+        if not fut.done():
+            _idents, fed = km.session.feed_identities(msg_list)
+            fut.set_result(km.session.deserialize(fed, content=False))
+
+    shell.on_recv(on_recv)
+    km.session.send(shell, "kernel_info_request")
+    reply = await asyncio.wait_for(fut, 60)
+    assert reply["header"]["msg_type"] == "kernel_info_reply"
+    shell.close()
+    await km.shutdown_kernel(now=True)
+
+
+asyncio.run(main())
+assert "tornado" not in sys.modules
+print("OK")
+'''
+
+
+@pytest.mark.timeout(120)
+def test_works_without_tornado(tmp_path):
+    """jupyter_client can import and drive a kernel with tornado unimportable.
+
+    This is the property the whole migration is for, so it is worth asserting
+    directly rather than inferring it from the absence of imports.
+    """
+    import subprocess
+    import sys
+
+    script = tmp_path / "no_tornado.py"
+    script.write_text(NO_TORNADO_SCRIPT)
+    proc = subprocess.run(
+        [sys.executable, str(script)],
+        capture_output=True,
+        text=True,
+        timeout=110,
+        check=False,
+    )
+    assert proc.returncode == 0, f"stdout:\n{proc.stdout}\nstderr:\n{proc.stderr}"
+    assert "OK" in proc.stdout

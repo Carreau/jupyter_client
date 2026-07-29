@@ -26,6 +26,7 @@ with Jupyter kernels.
    provisioning
    pending-kernels
    security
+   asyncio-migration
 
 .. toctree::
    :maxdepth: 2
