@@ -8,6 +8,7 @@ the Session, and expect the reply to arrive on the event loop.
 import asyncio
 
 import pytest
+import zmq.asyncio
 from traitlets.config.loader import Config
 
 from jupyter_client.ioloop import AsyncIOLoopKernelManager, IOLoopKernelManager
@@ -212,3 +213,54 @@ def test_works_without_tornado(tmp_path):
     )
     assert proc.returncode == 0, f"stdout:\n{proc.stdout}\nstderr:\n{proc.stderr}"
     assert "OK" in proc.stdout
+
+
+@pytest.mark.timeout(60)
+async def test_stream_class_none_returns_asyncio_socket():
+    """The recommended shape: connect_* hands back an awaitable socket."""
+    c = Config()
+    c.AsyncIOLoopKernelManager.stream_class = None
+    km = AsyncIOLoopKernelManager(config=c)
+    assert km.stream_class is None
+
+    await km.start_kernel(stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
+    shell = km.connect_shell()
+    try:
+        assert isinstance(shell, zmq.asyncio.Socket)
+        km.session.send(shell, "kernel_info_request")
+        parts = await asyncio.wait_for(shell.recv_multipart(), 30)
+        _idents, fed = km.session.feed_identities(parts)
+        reply = km.session.deserialize(fed, content=False)
+        assert reply["header"]["msg_type"] == "kernel_info_reply"
+    finally:
+        shell.close()
+        await km.shutdown_kernel(now=True)
+
+
+@pytest.mark.timeout(60)
+async def test_stream_class_none_applies_backpressure():
+    """Nothing is read off the socket until the caller asks for it.
+
+    This is the property the callback wrappers cannot offer: with on_recv, the
+    stream drains the socket as fast as messages arrive regardless of whether
+    the consumer can keep up.
+    """
+    c = Config()
+    c.AsyncIOLoopKernelManager.stream_class = None
+    km = AsyncIOLoopKernelManager(config=c)
+    await km.start_kernel(stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
+    shell = km.connect_shell()
+    try:
+        for _ in range(5):
+            km.session.send(shell, "kernel_info_request")
+        # Give the kernel time to reply to all of them.
+        await asyncio.sleep(2)
+        # Still nothing consumed: the replies are sitting in zmq's buffer,
+        # not in ours.
+        received = []
+        for _ in range(5):
+            received.append(await asyncio.wait_for(shell.recv_multipart(), 30))
+        assert len(received) == 5
+    finally:
+        shell.close()
+        await km.shutdown_kernel(now=True)

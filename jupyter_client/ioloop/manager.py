@@ -1,10 +1,14 @@
-"""A kernel manager that connects its sockets as event-loop-driven streams.
+"""A kernel manager whose connect_* methods can wrap their sockets.
 
 .. versionchanged:: 8.10
-    ``connect_*`` can now return :class:`~jupyter_client.stream.AsyncZMQStream`,
-    an asyncio-native stand-in for ``zmq.eventloop.zmqstream.ZMQStream``. Set
-    :attr:`stream_class` to opt in; it becomes the default in jupyter-client 9.0,
-    when tornado is dropped as a dependency.
+    :attr:`stream_class` decides what ``connect_*`` returns. Setting it to
+    ``None`` returns the socket unwrapped -- a ``zmq.asyncio.Socket`` for
+    :class:`AsyncIOLoopKernelManager` -- which you drive by awaiting it. That is
+    the recommended target and becomes the default in jupyter-client 9.0.
+
+    The callback-style wrappers remain for code that has not moved yet:
+    :class:`~jupyter_client.stream.AsyncZMQStream` is a tornado-free adapter with
+    the old ``on_recv`` interface, and tornado's ``ZMQStream`` is deprecated.
 """
 
 # Copyright (c) Jupyter Development Team.
@@ -26,9 +30,17 @@ from .restarter import AsyncIOLoopKernelRestarter, IOLoopKernelRestarter
 _STREAM_CLASS_HELP = """\
 Class used to wrap the sockets returned by the connect_* methods.
 
-Defaults to the tornado-based ``zmq.eventloop.zmqstream.ZMQStream``. Set this to
-``jupyter_client.stream.AsyncZMQStream`` for an asyncio-native stream with the
-same interface; that becomes the default in jupyter-client 9.0.
+Set this to ``None`` -- the recommended choice, and the default from
+jupyter-client 9.0 -- to get the underlying socket with no wrapper at all. For
+AsyncKernelManager that is a ``zmq.asyncio.Socket``, which you drive by awaiting
+it directly::
+
+    msg = await kernel_manager.connect_shell().recv_multipart()
+
+Two callback-style wrappers remain available for code that has not moved to
+awaiting sockets yet. ``jupyter_client.stream.AsyncZMQStream`` is an adapter
+offering the old ``on_recv`` interface without tornado, and the tornado-based
+``zmq.eventloop.zmqstream.ZMQStream`` (the current default) is deprecated.
 """
 
 _LOOP_DEPRECATION = (
@@ -48,9 +60,16 @@ def _default_stream_class() -> t.Any:
 
 
 def as_zmqstream(f: t.Any) -> t.Callable:
-    """Convert a socket to a zmq stream."""
+    """Convert a socket to a zmq stream, unless ``stream_class`` is None."""
 
     def wrapped(self: t.Any, *args: t.Any, **kwargs: t.Any) -> t.Any:
+        if self.stream_class is None:
+            # No wrapper: hand back the socket the base manager built. For
+            # AsyncKernelManager that is a zmq.asyncio.Socket, which the caller
+            # awaits directly -- no callbacks, and zmq applies backpressure
+            # because nothing is read until the caller asks for it.
+            return f(self, *args, **kwargs)
+
         save_socket_class = None
         # zmqstreams only support sync sockets
         if self.context._socket_class is not zmq.Socket:
@@ -123,7 +142,7 @@ def _record_stream_loop(self: t.Any) -> None:
 class IOLoopKernelManager(KernelManager):
     """An io loop kernel manager."""
 
-    stream_class = Type(klass=object, help=_STREAM_CLASS_HELP, config=True)
+    stream_class = Type(klass=object, allow_none=True, help=_STREAM_CLASS_HELP, config=True)
 
     @default("stream_class")
     def _stream_class_default(self) -> t.Any:
@@ -186,7 +205,7 @@ class IOLoopKernelManager(KernelManager):
 class AsyncIOLoopKernelManager(AsyncKernelManager):
     """An async ioloop kernel manager."""
 
-    stream_class = Type(klass=object, help=_STREAM_CLASS_HELP, config=True)
+    stream_class = Type(klass=object, allow_none=True, help=_STREAM_CLASS_HELP, config=True)
 
     @default("stream_class")
     def _stream_class_default(self) -> t.Any:
