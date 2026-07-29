@@ -6,23 +6,40 @@ restarts the kernel if it dies.
 
 # Copyright (c) Jupyter Development Team.
 # Distributed under the terms of the Modified BSD License.
+from __future__ import annotations
+
+import asyncio
+import inspect
 import time
 import warnings
 from typing import Any
 
-from traitlets import Instance
+from traitlets import Any as AnyTrait
+from traitlets import default
 
 from ..restarter import KernelRestarter
+from ..stream import ensure_event_loop
 
 
 class IOLoopKernelRestarter(KernelRestarter):
-    """Monitor and autorestart a kernel."""
+    """Monitor and autorestart a kernel.
 
-    loop = Instance("tornado.ioloop.IOLoop")
+    .. versionchanged:: 8.10
+        Polling is driven by :mod:`asyncio` instead of
+        ``tornado.ioloop.PeriodicCallback``.
+    """
 
+    # Deprecated. Declared as Any rather than Instance("tornado.ioloop.IOLoop"):
+    # traitlets resolves Instance class strings at instance-init time, which
+    # would import tornado for every restarter ever constructed.
+    loop = AnyTrait()
+
+    @default("loop")
     def _loop_default(self) -> Any:
         warnings.warn(
-            "IOLoopKernelRestarter.loop is deprecated in jupyter-client 5.2",
+            "IOLoopKernelRestarter.loop is deprecated in jupyter-client 5.2"
+            " and will be removed in 9.0. Polling now runs on the asyncio"
+            " event loop; use asyncio.get_running_loop() instead.",
             DeprecationWarning,
             stacklevel=4,
         )
@@ -30,24 +47,87 @@ class IOLoopKernelRestarter(KernelRestarter):
 
         return ioloop.IOLoop.current()
 
+    #: Deprecated, and now always ``None``: polling no longer goes through a
+    #: tornado PeriodicCallback. Kept so that ``self._pcallback is None`` checks
+    #: in subclasses do not raise AttributeError.
     _pcallback = None
+
+    _timer_handle: asyncio.TimerHandle | None = None
+    _poll_task: asyncio.Task | None = None
+    _stopped = True
+
+    def _get_loop(self) -> asyncio.AbstractEventLoop:
+        """The asyncio loop to schedule polls on."""
+        # If a caller explicitly supplied a tornado IOLoop, honor it.
+        if "loop" in self._trait_values:
+            asyncio_loop = getattr(self._trait_values["loop"], "asyncio_loop", None)
+            if asyncio_loop is not None:
+                return asyncio_loop
+        return ensure_event_loop()
 
     def start(self) -> None:
         """Start the polling of the kernel."""
-        if self._pcallback is None:
-            from tornado.ioloop import PeriodicCallback
-
-            self._pcallback = PeriodicCallback(
-                self.poll,
-                1000 * self.time_to_dead,
-            )
-            self._pcallback.start()
+        if not self._stopped:
+            return
+        self._stopped = False
+        self._schedule_next()
 
     def stop(self) -> None:
         """Stop the kernel polling."""
-        if self._pcallback is not None:
-            self._pcallback.stop()
-            self._pcallback = None
+        self._stopped = True
+        if self._timer_handle is not None:
+            self._timer_handle.cancel()
+            self._timer_handle = None
+        if self._poll_task is not None:
+            # poll() may call stop() on itself when the restart limit is hit;
+            # cancelling the task we are running inside of would be unhelpful.
+            try:
+                current = asyncio.current_task()
+            except RuntimeError:  # pragma: no cover - no running loop
+                current = None
+            if self._poll_task is not current:
+                self._poll_task.cancel()
+            self._poll_task = None
+
+    def _schedule_next(self) -> None:
+        """Arm the timer for the next poll."""
+        if self._stopped:
+            return
+        self._timer_handle = self._get_loop().call_later(self.time_to_dead, self._run_poll)
+
+    def _run_poll(self) -> None:
+        """Timer callback: poll once, then re-arm."""
+        self._timer_handle = None
+        if self._stopped:
+            return
+        result: Any = None
+        try:
+            # KernelRestarter.poll is sync; AsyncIOLoopKernelRestarter.poll is a
+            # coroutine function. Both shapes are handled below.
+            result = self.poll()  # type:ignore[func-returns-value]
+        except Exception:
+            self.log.exception("KernelRestarter: poll failed")
+
+        if inspect.isawaitable(result):
+            # AsyncIOLoopKernelRestarter.poll is a coroutine; re-arm only once
+            # it has finished so that polls cannot overlap. Wrap the coroutine
+            # directly rather than nesting it inside another one: cancelling the
+            # task must close the coroutine, not leave it un-awaited.
+            task = asyncio.ensure_future(result)
+            self._poll_task = task
+            task.add_done_callback(self._poll_done)
+        else:
+            self._schedule_next()
+
+    def _poll_done(self, task: asyncio.Future) -> None:
+        """Re-arm the timer once an async poll has settled."""
+        self._poll_task = None
+        if task.cancelled():
+            return
+        exc = task.exception()
+        if exc is not None:
+            self.log.error("KernelRestarter: poll failed", exc_info=exc)
+        self._schedule_next()
 
 
 class AsyncIOLoopKernelRestarter(IOLoopKernelRestarter):
