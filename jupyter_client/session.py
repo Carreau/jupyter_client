@@ -30,7 +30,6 @@ from hmac import compare_digest
 
 # We are using compare_digest to limit the surface of timing attacks
 import zmq.asyncio
-from tornado.ioloop import IOLoop
 from traitlets import (
     Any,
     Bool,
@@ -44,16 +43,35 @@ from traitlets import (
     Set,
     TraitError,
     Unicode,
+    default,
     observe,
 )
 from traitlets.config.configurable import Configurable, LoggingConfigurable
 from traitlets.log import get_logger
 from traitlets.utils.importstring import import_item
-from zmq.eventloop.zmqstream import ZMQStream
 
 from ._version import protocol_version
 from .adapter import adapt
 from .jsonutil import extract_dates, json_clean, json_default, squash_dates
+from .stream import AsyncZMQStream
+
+try:
+    # ZMQStream pulls in tornado. It is still supported wherever a stream is
+    # accepted, but jupyter-client no longer requires it to be importable.
+    from zmq.eventloop.zmqstream import ZMQStream
+except ImportError:  # pragma: no cover
+    ZMQStream = None  # type:ignore[assignment,misc]
+
+#: Socket-like objects that wrap a real socket in a ``.socket`` attribute.
+_STREAM_TYPES: tuple[type, ...] = (
+    (AsyncZMQStream,) if ZMQStream is None else (AsyncZMQStream, ZMQStream)
+)
+
+
+def _is_stream(obj: t.Any) -> bool:
+    """Whether ``obj`` wraps a socket rather than being one."""
+    return isinstance(obj, _STREAM_TYPES)
+
 
 PICKLE_PROTOCOL = pickle.DEFAULT_PROTOCOL
 
@@ -260,9 +278,22 @@ class SessionFactory(LoggingConfigurable):
 
     session = Instance("jupyter_client.session.Session", allow_none=True)
 
-    loop = Instance("tornado.ioloop.IOLoop")
+    # Deprecated. Declared as Any rather than Instance("tornado.ioloop.IOLoop")
+    # because traitlets resolves Instance class strings at instance-init time,
+    # which would import tornado for every SessionFactory ever constructed.
+    loop = Any()
 
-    def _loop_default(self) -> IOLoop:
+    @default("loop")
+    def _loop_default(self) -> t.Any:
+        warnings.warn(
+            "SessionFactory.loop is deprecated in jupyter-client 8.10 and will be"
+            " removed in 9.0. jupyter-client no longer uses a tornado IOLoop;"
+            " use asyncio.get_running_loop() instead.",
+            DeprecationWarning,
+            stacklevel=4,
+        )
+        from tornado.ioloop import IOLoop
+
         return IOLoop.current()
 
     def __init__(self, **kwargs: t.Any) -> None:
@@ -759,7 +790,7 @@ class Session(Configurable):
 
     def send(
         self,
-        stream: zmq.sugar.socket.Socket | ZMQStream | None,
+        stream: zmq.sugar.socket.Socket | AsyncZMQStream | None,
         msg_or_type: dict[str, t.Any] | str,
         content: dict[str, t.Any] | None = None,
         parent: dict[str, t.Any] | None = None,
@@ -916,7 +947,7 @@ class Session(Configurable):
 
     def recv(
         self,
-        socket: zmq.sugar.socket.Socket,
+        socket: zmq.sugar.socket.Socket | AsyncZMQStream,
         mode: int = zmq.NOBLOCK,
         content: bool = True,
         copy: bool = True,
@@ -934,13 +965,14 @@ class Session(Configurable):
             [idents] is a list of idents and msg is a nested message dict of
             same format as self.msg returns.
         """
-        if isinstance(socket, ZMQStream):  # type:ignore[unreachable]
-            socket = socket.socket  # type:ignore[unreachable]
-        if isinstance(socket, zmq.asyncio.Socket):
-            socket = zmq.Socket.shadow(socket.underlying)
+        sock: t.Any = socket
+        if _is_stream(sock):
+            sock = sock.socket
+        if isinstance(sock, zmq.asyncio.Socket):
+            sock = zmq.Socket.shadow(sock.underlying)
 
         try:
-            msg_list = socket.recv_multipart(mode, copy=copy)
+            msg_list = sock.recv_multipart(mode, copy=copy)
         except zmq.ZMQError as e:
             if e.errno == zmq.EAGAIN:
                 # We can convert EAGAIN to None as we know in this case
