@@ -12,9 +12,6 @@ from collections.abc import Iterable
 from datetime import date, datetime
 from typing import Any, Union
 
-from dateutil.parser import isoparse as _dateutil_parse
-from dateutil.tz import tzlocal
-
 next_attr_name = "__next__"  # Not sure what downstream library uses this, but left it to be safe
 
 # -----------------------------------------------------------------------------
@@ -48,6 +45,8 @@ def _ensure_tzinfo(dt: datetime) -> datetime:
             DeprecationWarning,
             stacklevel=4,
         )
+        from dateutil.tz import tzlocal
+
         dt = dt.replace(tzinfo=tzlocal())
     return dt
 
@@ -63,6 +62,8 @@ def parse_date(s: str | None) -> Union[str, datetime] | None:
         return s
     m = ISO8601_PAT.match(s)
     if m:
+        from dateutil.parser import isoparse as _dateutil_parse
+
         dt = _dateutil_parse(s)
         return _ensure_tzinfo(dt)
     return s

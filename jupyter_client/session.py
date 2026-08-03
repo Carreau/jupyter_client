@@ -47,7 +47,6 @@ from traitlets import (
     observe,
 )
 from traitlets.config.configurable import Configurable, LoggingConfigurable
-from traitlets.log import get_logger
 from traitlets.utils.importstring import import_item
 from zmq.eventloop.zmqstream import ZMQStream
 
@@ -582,6 +581,8 @@ class Session(Configurable):
         self.pid = os.getpid()
         self._new_auth()
         if not self.key:
+            from traitlets.log import get_logger
+
             get_logger().warning(
                 "Message signing is disabled.  This is insecure and not recommended!"
             )
@@ -834,6 +835,8 @@ class Session(Configurable):
                 metadata=metadata,
             )
         if self.check_pid and os.getpid() != self.pid:
+            from traitlets.log import get_logger
+
             get_logger().warning("WARNING: attempted to send message from fork\n%s", msg)
             return None
         buffers = [] if buffers is None else buffers
