@@ -1,6 +1,6 @@
 # Kernel as a Yjs collaborator — exploration synthesis (draft)
 
-Status: exploration draft for discussion. Detailed notes in `notes/`, working prototype in `prototype/`
+Status: exploration draft for discussion. For the landscape / talking-points summary see `LANDSCAPE.md`. Detailed notes in `notes/`, working prototype in `prototype/`
 (26 tests against a real ipykernel, passing).
 
 | File | Content |
